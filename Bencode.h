@@ -38,11 +38,20 @@ namespace bencode {
 
     inline auto DecodeBencodeElement(std::string_view str) -> BencodeElement;
 
-    inline auto Decode(BencodeElement const &) -> std::string;
+    inline auto Encode(BencodeElement const &) -> std::string;
 
     inline auto Prettier(BencodeElement const &) -> std::string;
 
     struct BencodeElement {
+
+        bool operator==(const BencodeElement &rhs) const {
+            return value == rhs.value;
+        }
+
+        bool operator!=(const BencodeElement &rhs) const {
+            return !(rhs == *this);
+        }
+
         std::variant<BencodeInteger, BencodeString, BencodeList, BencodeDictionary> value;
     };
 
@@ -179,7 +188,7 @@ namespace bencode {
     }
 
     namespace details {
-        struct Decoder {
+        struct Encoder {
             auto operator()(BencodeInteger const &integer) -> std::string {
                 return "i"s + std::to_string(integer) + "e"s;
             }
@@ -193,7 +202,7 @@ namespace bencode {
 
                 output << 'l';
                 for (auto &&el : list) {
-                    output << std::visit(Decoder(), el.value);
+                    output << std::visit(Encoder(), el.value);
                 }
                 output << 'e';
 
@@ -205,7 +214,7 @@ namespace bencode {
 
                 output << 'd';
                 for (auto &&[key, el] : dict) {
-                    output << key << std::visit(Decoder(), el.value);
+                    output << Encoder()(key) << std::visit(Encoder(), el.value);
                 }
                 output << 'e';
 
@@ -239,7 +248,7 @@ namespace bencode {
 
                 output << '{';
                 for (auto &&[key, el] : dict) {
-                    output << key << " : " << std::visit(Prettier(), el.value) << " , ";
+                    output << Prettier()(key) << " : " << std::visit(Prettier(), el.value) << " , ";
                 }
 
                 auto output_str = output.str();
@@ -249,8 +258,8 @@ namespace bencode {
         };
     }
 
-    inline auto Decode(BencodeElement const &el) -> std::string {
-        return std::visit(details::Decoder(), el.value);
+    inline auto Encode(BencodeElement const &el) -> std::string {
+        return std::visit(details::Encoder(), el.value);
     }
 
     inline auto Prettier(BencodeElement const &el) -> std::string {
