@@ -10,7 +10,7 @@
 #include <string>
 #include <string_view>
 #include <sstream>
-#include <unordered_map>
+#include <map>
 #include <charconv>
 
 #define PARSE_ERROR_MSG(str) (__PRETTY_FUNCTION__ + " "s + __FILE__  + " "s +  std::to_string(__LINE__) \
@@ -21,12 +21,16 @@ namespace bencode {
     struct BencodeElement;
     using BencodeInteger = long long;
     using BencodeString = std::string;
+    // use of incomplete type BencodeElement. Works in gcc/clang
     using BencodeList = std::vector<BencodeElement>;
-    using BencodeDictionary = std::unordered_map<BencodeString, BencodeElement>;
+    // use of incomplete type BencodeElement. Works in gcc/clang
+    using BencodeDictionary = std::map<BencodeString, BencodeElement>;
 
-    using string_view_ptr = std::string_view::const_pointer;
-    using BencodeStringSizeType = std::string::size_type;
-    using namespace std::literals::string_literals;
+    namespace {
+        using string_view_ptr = std::string_view::const_pointer;
+        using BencodeStringSizeType = std::string::size_type;
+        using namespace std::literals::string_literals;
+    }
 
     inline auto DecodeBencodeDictionary(std::string_view str) -> std::pair<BencodeDictionary, string_view_ptr>;
 
@@ -125,7 +129,7 @@ namespace bencode {
         using string_view_sz = std::string_view::size_type;
         BencodeDictionary result;
         auto decode_element_pos = str.cbegin();
-        while (*decode_element_pos != 'e') {
+        while (decode_element_pos < str.cend() && *decode_element_pos != 'e') {
             auto argument_view = std::string_view{decode_element_pos,
                                                   static_cast<string_view_sz>(str.cend() - decode_element_pos)};
             auto[key, end] = DecodeBencodeString(argument_view);
@@ -187,75 +191,77 @@ namespace bencode {
         }
     }
 
-    namespace details {
-        struct Encoder {
-            auto operator()(BencodeInteger const &integer) -> std::string {
-                return "i"s + std::to_string(integer) + "e"s;
-            }
-
-            auto operator()(BencodeString const &str) -> std::string {
-                return std::to_string(str.size()) + ":"s + str;
-            }
-
-            auto operator()(BencodeList const &list) -> std::string {
-                std::ostringstream output{};
-
-                output << 'l';
-                for (auto &&el : list) {
-                    output << std::visit(Encoder(), el.value);
-                }
-                output << 'e';
-
-                return output.str();
-            }
-
-            auto operator()(BencodeDictionary const &dict) -> std::string {
-                std::ostringstream output{};
-
-                output << 'd';
-                for (auto &&[key, el] : dict) {
-                    output << Encoder()(key) << std::visit(Encoder(), el.value);
-                }
-                output << 'e';
-
-                return output.str();
-            }
-        };
-
-        struct Prettier {
-            auto operator()(BencodeInteger const &integer) -> std::string {
-                return std::to_string(integer);
-            }
-
-            auto operator()(BencodeString const &str) -> std::string {
-                return str;
-            }
-
-            auto operator()(BencodeList const &list) -> std::string {
-                std::ostringstream output{};
-
-                output << '[';
-                for (auto &&el : list) {
-                    output << std::visit(Prettier(), el.value) << " , ";
+    namespace {
+        namespace details {
+            struct Encoder {
+                auto operator()(BencodeInteger const &integer) -> std::string {
+                    return "i"s + std::to_string(integer) + "e"s;
                 }
 
-                auto output_str = output.str();
-                return output_str.erase(output_str.size() - 3) + "]";
-            }
-
-            auto operator()(BencodeDictionary const &dict) -> std::string {
-                std::ostringstream output{};
-
-                output << '{';
-                for (auto &&[key, el] : dict) {
-                    output << Prettier()(key) << " : " << std::visit(Prettier(), el.value) << " , ";
+                auto operator()(BencodeString const &str) -> std::string {
+                    return std::to_string(str.size()) + ":"s + str;
                 }
 
-                auto output_str = output.str();
+                auto operator()(BencodeList const &list) -> std::string {
+                    std::ostringstream output{};
 
-                return output_str.erase(output_str.size() - 3) + "}";
-            }
-        };
+                    output << 'l';
+                    for (auto &&el : list) {
+                        output << std::visit(Encoder(), el.value);
+                    }
+                    output << 'e';
+
+                    return output.str();
+                }
+
+                auto operator()(BencodeDictionary const &dict) -> std::string {
+                    std::ostringstream output{};
+
+                    output << 'd';
+                    for (auto &&[key, el] : dict) {
+                        output << Encoder()(key) << std::visit(Encoder(), el.value);
+                    }
+                    output << 'e';
+
+                    return output.str();
+                }
+            };
+
+            struct Prettier {
+                auto operator()(BencodeInteger const &integer) -> std::string {
+                    return std::to_string(integer);
+                }
+
+                auto operator()(BencodeString const &str) -> std::string {
+                    return str;
+                }
+
+                auto operator()(BencodeList const &list) -> std::string {
+                    std::ostringstream output{};
+
+                    output << '[';
+                    for (auto &&el : list) {
+                        output << std::visit(Prettier(), el.value) << " , ";
+                    }
+
+                    auto output_str = output.str();
+                    return output_str.erase(output_str.size() - 3) + "]";
+                }
+
+                auto operator()(BencodeDictionary const &dict) -> std::string {
+                    std::ostringstream output{};
+
+                    output << '{';
+                    for (auto &&[key, el] : dict) {
+                        output << Prettier()(key) << " : " << std::visit(Prettier(), el.value) << " , ";
+                    }
+
+                    auto output_str = output.str();
+
+                    return output_str.erase(output_str.size() - 3) + "}";
+                }
+            };
+        }
     }
 
     inline auto Encode(BencodeElement const &el) -> std::string {
